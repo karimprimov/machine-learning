@@ -1,0 +1,137 @@
+---
+title: "machinelearningexercise"
+author: "Karim Primov"
+date: '2022-04-27'
+output: html_document
+---
+web link: https://rspatial.org/terra/sdm/9_sdm_brt.html
+
+```{r}
+library(raster)
+library(gbm)
+library(dismo)
+library(skimr)
+library(kableExtra)
+library(tidyverse)
+library(dataMaid)
+library(psych)
+library(pastecs)
+library(Hmisc)
+library(ggExtra)
+library(car)
+library(corrplot)
+library(patchwork)
+library(cowplot)
+library(gridExtra)
+data(Anguilla_train) #the same data as used in Elith, Leathwick and Hastie (2008).
+head(Anguilla_train)
+```
+
+```{r}
+skim(Anguilla_train)  # the main `skimr()` function
+```
+
+```{r}
+angaus.tc5.lr01 <- gbm.step(data=Anguilla_train, gbm.x = 3:13, gbm.y = 2,
+                        family = "bernoulli", tree.complexity = 5,
+                        learning.rate = 0.01, bag.fraction = 0.5)
+```
+
+```{r}
+names(angaus.tc5.lr01)
+```
+
+```{r}
+summary(angaus.tc5.lr01)
+```
+
+```{r}
+angaus.tc5.lr005 <- gbm.step(data=Anguilla_train, gbm.x = 3:13, gbm.y = 2,
+                      family = "bernoulli", tree.complexity = 5,
+                      learning.rate = 0.005, bag.fraction = 0.5)
+```
+
+```{r}
+angaus.simp <- gbm.simplify(angaus.tc5.lr005, n.drops = 5)
+```
+
+```{r}
+angaus.tc5.lr005.simp <- gbm.step(Anguilla_train,
+                   gbm.x=angaus.simp$pred.list[[1]], gbm.y=2,
+                   tree.complexity=5, learning.rate=0.005)
+```
+
+```{r}
+gbm.plot(angaus.tc5.lr005, n.plots=11, plot.layout=c(4, 3), write.title = FALSE)
+```
+
+```{r}
+gbm.plot.fits(angaus.tc5.lr005)
+```
+
+```{r}
+find.int <- gbm.interactions(angaus.tc5.lr005)
+```
+
+```{r}
+find.int$interactions
+```
+
+
+```{r}
+find.int$rank.list
+```
+
+```{r}
+data(Anguilla_test)
+library(gbm)
+preds <- predict.gbm(angaus.tc5.lr005, Anguilla_test,
+         n.trees=angaus.tc5.lr005$gbm.call$best.trees, type="response")
+calc.deviance(obs=Anguilla_test$Angaus_obs, pred=preds, calc.mean=TRUE)
+```
+
+```{r}
+d <- cbind(Anguilla_test$Angaus_obs, preds)
+pres <- d[d[,1]==1, 2]
+abs <- d[d[,1]==0, 2]
+e <- evaluate(p=pres, a=abs)
+e
+```
+
+```{r}
+angaus.5000 <- gbm.fixed(data=Anguilla_train, gbm.x=3:13, gbm.y=2,
+               learning.rate=0.005, tree.complexity=5, n.trees=5000)
+```
+
+```{r}
+tree.list <- seq(100, 5000, by=100)
+pred <- predict.gbm(angaus.5000, Anguilla_test, n.trees=tree.list, "response")
+```
+
+```{r}
+angaus.pred.deviance <- rep(0,50)
+for (i in 1:50) {
+   angaus.pred.deviance[i] <- calc.deviance(Anguilla_test$Angaus_obs,
+                               pred[,i], calc.mean=TRUE)
+}
+```
+
+```{r}
+plot(tree.list, angaus.pred.deviance, ylim=c(0.7,1), xlim=c(-100,5000),
+     type='l', xlab="number of trees", ylab="predictive deviance",
+     cex.lab=1.5)
+```
+
+```{r}
+data(Anguilla_grids)
+plot(Anguilla_grids)
+```
+
+```{r}
+Method <- factor('electric', levels = levels(Anguilla_train$Method))
+add <- data.frame(Method)
+p <- predict(Anguilla_grids, angaus.tc5.lr005, const=add,
+       n.trees=angaus.tc5.lr005$gbm.call$best.trees, type="response")
+#p <- mask(p, raster(Anguilla_grids, 1))
+plot(p, main='Angaus - BRT prediction')
+```
